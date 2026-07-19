@@ -261,7 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
-    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v14-smoother-faster</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v15-clamp-crop</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -614,15 +614,26 @@
     if(!size || size < 4) return;
     const R = MOUTH_FX_WORK_RES;
 
+    // keep the crop rectangle fully inside the actual camera frame, so a mouth
+    // near the edge never gets a hard, cut-off patch — just shift the sample
+    // slightly instead of letting it run off the frame.
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const clampedSize = Math.min(size, vw, vh);
+    let sx = cx - clampedSize/2, sy = cy - clampedSize/2;
+    sx = Math.max(0, Math.min(vw - clampedSize, sx));
+    sy = Math.max(0, Math.min(vh - clampedSize, sy));
+
     // crop just the lips (+ small margin) from the live video into the working buffer
     workCtx.clearRect(0,0,R,R);
-    workCtx.drawImage(video, cx-size/2, cy-size/2, size, size, 0, 0, R, R);
+    workCtx.drawImage(video, sx, sy, clampedSize, clampedSize, 0, 0, R, R);
 
     // build a soft mask on a separate canvas: many copies of the lip contour, each
     // pushed outward by a FIXED distance, perpendicular to the contour at each point
     // (using the neighboring points to find the local outward direction) — this gives
     // an even gap all the way around, instead of varying between corners and top/bottom.
-    const lipCentroid = lastMouthBox.lipPts.reduce((a,p)=>({x:a.x+p.x/12, y:a.y+p.y/12}), {x:0,y:0});
+    const lipCentroid = lastMouthBox.lipPts.reduce((a,p)=>({x:a.x+p.x, y:a.y+p.y}), {x:0,y:0});
+    lipCentroid.x /= lastMouthBox.lipPts.length;
+    lipCentroid.y /= lastMouthBox.lipPts.length;
     const n = lastMouthBox.lipPts.length;
     const normals = lastMouthBox.lipPts.map((p, i) => {
       const prev = lastMouthBox.lipPts[(i-1+n)%n];
@@ -646,8 +657,8 @@
       maskCtx.beginPath();
       lastMouthBox.lipPts.forEach((p, i) => {
         const pxv = p.x + normals[i].x*marginVideo, pyv = p.y + normals[i].y*marginVideo;
-        const lx = (pxv - (cx-size/2)) / size * R;
-        const ly = (pyv - (cy-size/2)) / size * R;
+        const lx = (pxv - sx) / clampedSize * R;
+        const ly = (pyv - sy) / clampedSize * R;
         if(i === 0) maskCtx.moveTo(lx, ly); else maskCtx.lineTo(lx, ly);
       });
       maskCtx.closePath();
@@ -662,7 +673,7 @@
     // draw it back over the same spot, but noticeably bigger than its natural size
     const { scale, offsetX, offsetY } = getVideoToCanvasScale();
     const dcx = cx*scale - offsetX, dcy = cy*scale - offsetY;
-    const naturalDsize = size*scale;
+    const naturalDsize = clampedSize*scale;
     const finalDsize = naturalDsize * MOUTH_FX_MAGNIFY;
     ctx.drawImage(workCanvas, dcx-finalDsize/2, dcy-finalDsize/2, finalDsize, finalDsize);
   }
