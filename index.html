@@ -261,7 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
-    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v10-soft-feather</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v11-fixed-margin</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -335,10 +335,10 @@
   const ROUND_SECONDS = 30;
   const CATCH_RADIUS = 130; // px in video pixel space, how far the tongue reaches
   const MOUTH_FX_WORK_RES = 180;   // working resolution for the lip crop
-  const MOUTH_FX_PADDING = 3.4;    // generous crop margin so the wide feather never gets cut off at the buffer edge
+  const MOUTH_FX_PADDING = 4.0;    // generous crop margin so the wide feather never gets cut off at the buffer edge
   const MOUTH_FX_MAGNIFY = 2.5;    // how much bigger the lips are drawn than natural size
-  const MOUTH_FX_MASK_EXPAND = 1.6;   // base outward push of the mask contour beyond the exact lip line
-  const MOUTH_FX_FEATHER_RANGE = 1.1; // how much further out the feather fades, on top of the base expand
+  const MOUTH_FX_MARGIN = 0.5;        // base outward margin, as a fraction of mouth width (fixed distance, not relative to current mouth openness)
+  const MOUTH_FX_FEATHER_RANGE = 1.1; // how much further out the feather fades, on top of the base margin
   const MOUTH_FX_FEATHER_STEPS = 16;  // more steps = smoother, less visible banding
   const MOUTH_OPEN_THRESHOLD = 0.42;
   const MOUTH_CLOSE_THRESHOLD = 0.24;
@@ -581,8 +581,12 @@
       minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
     }
     const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+    // mouth width (corner-to-corner) barely changes when the mouth opens, so we use
+    // it as a stable reference for the margin instead of the full bounding box,
+    // which balloons vertically once the mouth opens.
+    const mouthWidth = Math.hypot(pts[54].x-pts[48].x, pts[54].y-pts[48].y);
     const size = Math.max(maxX-minX, maxY-minY) * MOUTH_FX_PADDING;
-    return { cx, cy, size, lipPts };
+    return { cx, cy, size, lipPts, mouthWidth };
   }
 
   function drawMouthBulge(){
@@ -596,22 +600,24 @@
     workCtx.clearRect(0,0,R,R);
     workCtx.drawImage(video, cx-size/2, cy-size/2, size, size, 0, 0, R, R);
 
-    // build a soft mask on a separate canvas: many slightly larger, fainter copies
-    // of the actual lip contour, stacked from wide+faint up to the true outline+solid.
-    // this reads as a smooth feather with no visible polygon edge, and needs no
-    // canvas filter support (works reliably everywhere).
+    // build a soft mask on a separate canvas: many copies of the lip contour, each
+    // pushed outward by a FIXED distance (based on mouth width, not the current
+    // bounding box) so the gap stays constant whether the mouth is open or closed.
+    const lipCentroid = lastMouthBox.lipPts.reduce((a,p)=>({x:a.x+p.x/12, y:a.y+p.y/12}), {x:0,y:0});
     maskCtx.clearRect(0,0,R,R);
     for(let k = MOUTH_FX_FEATHER_STEPS-1; k >= 0; k--){
       const t = k/(MOUTH_FX_FEATHER_STEPS-1); // 1 at outermost, 0 at innermost
-      const expand = MOUTH_FX_MASK_EXPAND * (1 + t*MOUTH_FX_FEATHER_RANGE);
+      const marginVideo = lastMouthBox.mouthWidth * MOUTH_FX_MARGIN * (1 + t*MOUTH_FX_FEATHER_RANGE);
       const alpha = Math.pow(1-t, 1.6);
       maskCtx.beginPath();
       lastMouthBox.lipPts.forEach((p, i) => {
-        const lx = (p.x - (cx-size/2)) / size * R;
-        const ly = (p.y - (cy-size/2)) / size * R;
-        const ex = R/2 + (lx-R/2) * expand;
-        const ey = R/2 + (ly-R/2) * expand;
-        if(i === 0) maskCtx.moveTo(ex, ey); else maskCtx.lineTo(ex, ey);
+        let dx = p.x - lipCentroid.x, dy = p.y - lipCentroid.y;
+        const len = Math.hypot(dx,dy) || 1;
+        dx /= len; dy /= len;
+        const pxv = p.x + dx*marginVideo, pyv = p.y + dy*marginVideo;
+        const lx = (pxv - (cx-size/2)) / size * R;
+        const ly = (pyv - (cy-size/2)) / size * R;
+        if(i === 0) maskCtx.moveTo(lx, ly); else maskCtx.lineTo(lx, ly);
       });
       maskCtx.closePath();
       maskCtx.fillStyle = 'rgba(0,0,0,' + alpha + ')';
