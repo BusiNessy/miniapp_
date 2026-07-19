@@ -261,7 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
-    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v11-fixed-margin</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v12-smaller-margin</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -337,7 +337,7 @@
   const MOUTH_FX_WORK_RES = 180;   // working resolution for the lip crop
   const MOUTH_FX_PADDING = 4.0;    // generous crop margin so the wide feather never gets cut off at the buffer edge
   const MOUTH_FX_MAGNIFY = 2.5;    // how much bigger the lips are drawn than natural size
-  const MOUTH_FX_MARGIN = 0.5;        // base outward margin, as a fraction of mouth width (fixed distance, not relative to current mouth openness)
+  const MOUTH_FX_MARGIN = 0.26;       // base outward margin, as a fraction of mouth width (fixed distance, not relative to current mouth openness)
   const MOUTH_FX_FEATHER_RANGE = 1.1; // how much further out the feather fades, on top of the base margin
   const MOUTH_FX_FEATHER_STEPS = 16;  // more steps = smoother, less visible banding
   const MOUTH_OPEN_THRESHOLD = 0.42;
