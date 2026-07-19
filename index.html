@@ -261,7 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
-    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v13-perpendicular-offset</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v14-smoother-faster</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -337,8 +337,8 @@
   const MOUTH_FX_WORK_RES = 180;   // working resolution for the lip crop
   const MOUTH_FX_PADDING = 4.0;    // generous crop margin so the wide feather never gets cut off at the buffer edge
   const MOUTH_FX_MAGNIFY = 2.5;    // how much bigger the lips are drawn than natural size
-  const MOUTH_FX_MARGIN = 0.26;       // base outward margin, as a fraction of mouth width (fixed distance, not relative to current mouth openness)
-  const MOUTH_FX_FEATHER_RANGE = 1.1; // how much further out the feather fades, on top of the base margin
+  const MOUTH_FX_MARGIN = 0.14;       // base outward margin, as a fraction of mouth width (fixed distance, not relative to current mouth openness)
+  const MOUTH_FX_FEATHER_RANGE = 0.8; // how much further out the feather fades, on top of the base margin
   const MOUTH_FX_FEATHER_STEPS = 16;  // more steps = smoother, less visible banding
   const MOUTH_OPEN_THRESHOLD = 0.42;
   const MOUTH_CLOSE_THRESHOLD = 0.24;
@@ -570,13 +570,28 @@
     return { x: x * scale - offsetX, y: y * scale - offsetY };
   }
 
+  function chaikinSmooth(pts, iterations){
+    let p = pts;
+    for(let it=0; it<iterations; it++){
+      const next = [];
+      const n = p.length;
+      for(let i=0;i<n;i++){
+        const p0 = p[i], p1 = p[(i+1)%n];
+        next.push({ x: p0.x*0.75+p1.x*0.25, y: p0.y*0.75+p1.y*0.25 });
+        next.push({ x: p0.x*0.25+p1.x*0.75, y: p0.y*0.25+p1.y*0.75 });
+      }
+      p = next;
+    }
+    return p;
+  }
+
   function computeMouthBox(landmarks){
     const pts = landmarks.positions;
-    const lipPts = [];
+    const rawLip = [];
     let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
     for(let i=48;i<=59;i++){ // outer lip contour only
       const p = pts[i];
-      lipPts.push({ x: p.x, y: p.y });
+      rawLip.push({ x: p.x, y: p.y });
       minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
       minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
     }
@@ -586,6 +601,9 @@
     // which balloons vertically once the mouth opens.
     const mouthWidth = Math.hypot(pts[54].x-pts[48].x, pts[54].y-pts[48].y);
     const size = Math.max(maxX-minX, maxY-minY) * MOUTH_FX_PADDING;
+    // smooth the 12 raw points into a rounder curve (removes the sharp cupid's-bow
+    // kink that otherwise makes the perpendicular offset unstable at top/bottom)
+    const lipPts = chaikinSmooth(rawLip, 2);
     return { cx, cy, size, lipPts, mouthWidth };
   }
 
@@ -668,7 +686,7 @@
   }
 
   async function startDetectionLoop(){
-    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 });
     async function loop(){
       if(!playing) return;
       try{
@@ -693,7 +711,7 @@
           }
         }
       }catch(e){ /* ignore transient detection errors */ }
-      detectTimer = setTimeout(loop, 120);
+      detectTimer = setTimeout(loop, 70);
     }
     loop();
   }
