@@ -261,7 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
-    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v12-smaller-margin</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v13-perpendicular-offset</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -601,9 +601,25 @@
     workCtx.drawImage(video, cx-size/2, cy-size/2, size, size, 0, 0, R, R);
 
     // build a soft mask on a separate canvas: many copies of the lip contour, each
-    // pushed outward by a FIXED distance (based on mouth width, not the current
-    // bounding box) so the gap stays constant whether the mouth is open or closed.
+    // pushed outward by a FIXED distance, perpendicular to the contour at each point
+    // (using the neighboring points to find the local outward direction) — this gives
+    // an even gap all the way around, instead of varying between corners and top/bottom.
     const lipCentroid = lastMouthBox.lipPts.reduce((a,p)=>({x:a.x+p.x/12, y:a.y+p.y/12}), {x:0,y:0});
+    const n = lastMouthBox.lipPts.length;
+    const normals = lastMouthBox.lipPts.map((p, i) => {
+      const prev = lastMouthBox.lipPts[(i-1+n)%n];
+      const next = lastMouthBox.lipPts[(i+1)%n];
+      let e1x = p.x-prev.x, e1y = p.y-prev.y;
+      const l1 = Math.hypot(e1x,e1y) || 1; e1x/=l1; e1y/=l1;
+      let e2x = next.x-p.x, e2y = next.y-p.y;
+      const l2 = Math.hypot(e2x,e2y) || 1; e2x/=l2; e2y/=l2;
+      let nx = -e1y - e2y, ny = e1x + e2x;
+      const nl = Math.hypot(nx,ny) || 1; nx/=nl; ny/=nl;
+      // make sure it points away from the mouth center, not into it
+      const toPtX = p.x-lipCentroid.x, toPtY = p.y-lipCentroid.y;
+      if(nx*toPtX + ny*toPtY < 0){ nx=-nx; ny=-ny; }
+      return { x: nx, y: ny };
+    });
     maskCtx.clearRect(0,0,R,R);
     for(let k = MOUTH_FX_FEATHER_STEPS-1; k >= 0; k--){
       const t = k/(MOUTH_FX_FEATHER_STEPS-1); // 1 at outermost, 0 at innermost
@@ -611,10 +627,7 @@
       const alpha = Math.pow(1-t, 1.6);
       maskCtx.beginPath();
       lastMouthBox.lipPts.forEach((p, i) => {
-        let dx = p.x - lipCentroid.x, dy = p.y - lipCentroid.y;
-        const len = Math.hypot(dx,dy) || 1;
-        dx /= len; dy /= len;
-        const pxv = p.x + dx*marginVideo, pyv = p.y + dy*marginVideo;
+        const pxv = p.x + normals[i].x*marginVideo, pyv = p.y + normals[i].y*marginVideo;
         const lx = (pxv - (cx-size/2)) / size * R;
         const ly = (pyv - (cy-size/2)) / size * R;
         if(i === 0) maskCtx.moveTo(lx, ly); else maskCtx.lineTo(lx, ly);
