@@ -261,7 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
-    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v7-lip-mask</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v8-lip-contour-mask</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -564,14 +564,17 @@
 
   function computeMouthBox(landmarks){
     const pts = landmarks.positions;
+    const lipPts = [];
     let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
     for(let i=48;i<=59;i++){ // outer lip contour only
-      minX = Math.min(minX, pts[i].x); maxX = Math.max(maxX, pts[i].x);
-      minY = Math.min(minY, pts[i].y); maxY = Math.max(maxY, pts[i].y);
+      const p = pts[i];
+      lipPts.push({ x: p.x, y: p.y });
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
     }
     const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
     const size = Math.max(maxX-minX, maxY-minY) * MOUTH_FX_PADDING;
-    return { cx, cy, size };
+    return { cx, cy, size, lipPts };
   }
 
   function drawMouthBulge(){
@@ -585,13 +588,20 @@
     workCtx.clearRect(0,0,R,R);
     workCtx.drawImage(video, cx-size/2, cy-size/2, size, size, 0, 0, R, R);
 
-    // soft round mask so edges fade into the surrounding skin instead of showing a hard box
+    // soft mask following the actual lip contour, instead of a generic circle
+    workCtx.save();
     workCtx.globalCompositeOperation = 'destination-in';
-    const grad = workCtx.createRadialGradient(R/2,R/2, R*0.30, R/2,R/2, R*0.5);
-    grad.addColorStop(0, 'rgba(0,0,0,1)');
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    workCtx.fillStyle = grad;
-    workCtx.fillRect(0,0,R,R);
+    workCtx.filter = 'blur(' + Math.round(R*0.05) + 'px)';
+    workCtx.beginPath();
+    lastMouthBox.lipPts.forEach((p, i) => {
+      const lx = (p.x - (cx-size/2)) / size * R;
+      const ly = (p.y - (cy-size/2)) / size * R;
+      if(i === 0) workCtx.moveTo(lx, ly); else workCtx.lineTo(lx, ly);
+    });
+    workCtx.closePath();
+    workCtx.fillStyle = '#000';
+    workCtx.fill();
+    workCtx.restore();
     workCtx.globalCompositeOperation = 'source-over';
 
     // draw it back over the same spot, but noticeably bigger than its natural size
