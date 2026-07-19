@@ -261,7 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
-    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v15-clamp-crop</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v16-centered-clamp-smoothing</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -386,7 +386,9 @@
   let lastFaceSeen = 0;
   let rafId = null;
   let detectTimer = null;
-  let lastMouthBox = null; // {cx, cy, size} in raw video pixel space
+  let lastMouthBox = null; // {cx, cy, size} in raw video pixel space, updated at detection rate
+  let smoothMouthBox = null; // same shape, eased toward lastMouthBox every render frame for fluid motion
+  const MOUTH_FX_SMOOTHING = 0.35; // 0-1, higher = snappier/less smooth, lower = smoother/more lag
 
   const workCanvas = document.createElement('canvas');
   workCanvas.width = MOUTH_FX_WORK_RES;
@@ -420,6 +422,8 @@
     timerVal.textContent = timeLeft;
     timerVal.classList.remove('low');
     faceHint.classList.add('hidden');
+    lastMouthBox = null;
+    smoothMouthBox = null;
 
     if(!window.isSecureContext){
       showScreen('error');
@@ -607,21 +611,42 @@
     return { cx, cy, size, lipPts, mouthWidth };
   }
 
+  function updateSmoothMouthBox(){
+    if(!lastMouthBox) return;
+    if(!smoothMouthBox || smoothMouthBox.lipPts.length !== lastMouthBox.lipPts.length){
+      smoothMouthBox = {
+        cx: lastMouthBox.cx, cy: lastMouthBox.cy, size: lastMouthBox.size,
+        mouthWidth: lastMouthBox.mouthWidth,
+        lipPts: lastMouthBox.lipPts.map(p => ({ x: p.x, y: p.y }))
+      };
+      return;
+    }
+    const f = MOUTH_FX_SMOOTHING;
+    smoothMouthBox.cx += (lastMouthBox.cx - smoothMouthBox.cx) * f;
+    smoothMouthBox.cy += (lastMouthBox.cy - smoothMouthBox.cy) * f;
+    smoothMouthBox.size += (lastMouthBox.size - smoothMouthBox.size) * f;
+    smoothMouthBox.mouthWidth += (lastMouthBox.mouthWidth - smoothMouthBox.mouthWidth) * f;
+    for(let i=0;i<smoothMouthBox.lipPts.length;i++){
+      smoothMouthBox.lipPts[i].x += (lastMouthBox.lipPts[i].x - smoothMouthBox.lipPts[i].x) * f;
+      smoothMouthBox.lipPts[i].y += (lastMouthBox.lipPts[i].y - smoothMouthBox.lipPts[i].y) * f;
+    }
+  }
+
   function drawMouthBulge(){
     if(!lastMouthBox) return;
     if(performance.now() - lastFaceSeen > 800) return;
-    const { cx, cy, size } = lastMouthBox;
+    updateSmoothMouthBox();
+    const { cx, cy, size } = smoothMouthBox;
     if(!size || size < 4) return;
     const R = MOUTH_FX_WORK_RES;
 
-    // keep the crop rectangle fully inside the actual camera frame, so a mouth
-    // near the edge never gets a hard, cut-off patch — just shift the sample
-    // slightly instead of letting it run off the frame.
+    // keep the crop rectangle fully inside the actual camera frame. Importantly,
+    // we SHRINK it while keeping it centered on the mouth (never shift its center) —
+    // shifting would misalign the enlarged patch from the real mouth underneath it.
     const vw = video.videoWidth, vh = video.videoHeight;
-    const clampedSize = Math.min(size, vw, vh);
-    let sx = cx - clampedSize/2, sy = cy - clampedSize/2;
-    sx = Math.max(0, Math.min(vw - clampedSize, sx));
-    sy = Math.max(0, Math.min(vh - clampedSize, sy));
+    const maxHalf = Math.min(cx, vw-cx, cy, vh-cy, size/2);
+    const clampedSize = Math.max(4, maxHalf*2);
+    const sx = cx - clampedSize/2, sy = cy - clampedSize/2;
 
     // crop just the lips (+ small margin) from the live video into the working buffer
     workCtx.clearRect(0,0,R,R);
@@ -631,13 +656,13 @@
     // pushed outward by a FIXED distance, perpendicular to the contour at each point
     // (using the neighboring points to find the local outward direction) — this gives
     // an even gap all the way around, instead of varying between corners and top/bottom.
-    const lipCentroid = lastMouthBox.lipPts.reduce((a,p)=>({x:a.x+p.x, y:a.y+p.y}), {x:0,y:0});
-    lipCentroid.x /= lastMouthBox.lipPts.length;
-    lipCentroid.y /= lastMouthBox.lipPts.length;
-    const n = lastMouthBox.lipPts.length;
-    const normals = lastMouthBox.lipPts.map((p, i) => {
-      const prev = lastMouthBox.lipPts[(i-1+n)%n];
-      const next = lastMouthBox.lipPts[(i+1)%n];
+    const lipCentroid = smoothMouthBox.lipPts.reduce((a,p)=>({x:a.x+p.x, y:a.y+p.y}), {x:0,y:0});
+    lipCentroid.x /= smoothMouthBox.lipPts.length;
+    lipCentroid.y /= smoothMouthBox.lipPts.length;
+    const n = smoothMouthBox.lipPts.length;
+    const normals = smoothMouthBox.lipPts.map((p, i) => {
+      const prev = smoothMouthBox.lipPts[(i-1+n)%n];
+      const next = smoothMouthBox.lipPts[(i+1)%n];
       let e1x = p.x-prev.x, e1y = p.y-prev.y;
       const l1 = Math.hypot(e1x,e1y) || 1; e1x/=l1; e1y/=l1;
       let e2x = next.x-p.x, e2y = next.y-p.y;
@@ -652,10 +677,10 @@
     maskCtx.clearRect(0,0,R,R);
     for(let k = MOUTH_FX_FEATHER_STEPS-1; k >= 0; k--){
       const t = k/(MOUTH_FX_FEATHER_STEPS-1); // 1 at outermost, 0 at innermost
-      const marginVideo = lastMouthBox.mouthWidth * MOUTH_FX_MARGIN * (1 + t*MOUTH_FX_FEATHER_RANGE);
+      const marginVideo = smoothMouthBox.mouthWidth * MOUTH_FX_MARGIN * (1 + t*MOUTH_FX_FEATHER_RANGE);
       const alpha = Math.pow(1-t, 1.6);
       maskCtx.beginPath();
-      lastMouthBox.lipPts.forEach((p, i) => {
+      smoothMouthBox.lipPts.forEach((p, i) => {
         const pxv = p.x + normals[i].x*marginVideo, pyv = p.y + normals[i].y*marginVideo;
         const lx = (pxv - sx) / clampedSize * R;
         const ly = (pyv - sy) / clampedSize * R;
