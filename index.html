@@ -116,30 +116,40 @@
     line-height:1.5;
   }
 
-  /* ---------- Game screen ---------- */
-  #screen-game{ padding:0; justify-content:flex-start; }
+  /* ---------- Game screen (full-bleed camera) ---------- */
+  #screen-game{
+    position:fixed;
+    inset:0;
+    width:100vw;
+    height:100vh;
+    padding:0;
+    margin:0;
+    max-width:none;
+    z-index:10;
+    display:block;
+  }
   .hud{
+    position:absolute;
+    top:0; left:0; right:0;
     display:flex;
     justify-content:space-between;
-    width:100%;
-    padding:14px 2px 8px;
-    position:relative;
+    padding: calc(env(safe-area-inset-top, 20px) + 10px) 20px 10px;
     z-index:5;
+    pointer-events:none;
   }
   .hud-block{ text-align:center; }
-  .hud-label{ font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:#B9D9C6; }
-  .hud-value{ font-family:var(--font-display); font-weight:700; font-size:28px; color:var(--tongue); line-height:1; }
-  .hud-value.timer{ color:var(--cream); }
+  .hud-label{ font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.6); }
+  .hud-value{ font-family:var(--font-display); font-weight:700; font-size:28px; color:var(--tongue); line-height:1; text-shadow:0 2px 6px rgba(0,0,0,.6); }
+  .hud-value.timer{ color:#fff; }
   .hud-value.timer.low{ color:var(--warn); }
 
   .cam-wrap{
-    position:relative;
-    width:100%;
-    border-radius:20px;
+    position:absolute;
+    inset:0;
+    width:100vw;
+    height:100vh;
     overflow:hidden;
     background:#000;
-    box-shadow: 0 10px 26px rgba(0,0,0,.45);
-    border: 3px solid var(--mud);
   }
   video, canvas{
     position:absolute;
@@ -153,9 +163,9 @@
 
   .mouth-meter-wrap{
     position:absolute;
-    bottom:10px;
-    left:10px;
-    right:10px;
+    bottom: calc(env(safe-area-inset-bottom, 16px) + 16px);
+    left:20px;
+    right:20px;
     height:8px;
     background: rgba(0,0,0,.35);
     border-radius:999px;
@@ -170,7 +180,8 @@
   }
   .face-hint{
     position:absolute;
-    top:10px; left:0; right:0;
+    top: calc(env(safe-area-inset-top, 20px) + 60px);
+    left:0; right:0;
     text-align:center;
     font-size:12.5px;
     color:#FFE3B0;
@@ -262,6 +273,16 @@
 
   <!-- GAME -->
   <section id="screen-game" class="screen hidden">
+    <div class="cam-wrap" id="cam-wrap">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="canvas"></canvas>
+      <div class="face-hint hidden" id="face-hint">Gesicht nicht erkannt – halt dein Gesicht ins Bild</div>
+      <div class="mouth-meter-wrap"><div class="mouth-meter-fill" id="mouth-fill"></div></div>
+      <div class="loading-overlay" id="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-text">Kamera wird gestartet…</div>
+      </div>
+    </div>
     <div class="hud">
       <div class="hud-block">
         <div class="hud-label">Gefangen</div>
@@ -270,16 +291,6 @@
       <div class="hud-block">
         <div class="hud-label">Zeit</div>
         <div class="hud-value timer" id="timer-val">30</div>
-      </div>
-    </div>
-    <div class="cam-wrap" id="cam-wrap" style="aspect-ratio: 3/4;">
-      <video id="video" playsinline muted autoplay></video>
-      <canvas id="canvas"></canvas>
-      <div class="face-hint hidden" id="face-hint">Gesicht nicht erkannt – halt dein Gesicht ins Bild</div>
-      <div class="mouth-meter-wrap"><div class="mouth-meter-fill" id="mouth-fill"></div></div>
-      <div class="loading-overlay" id="loading-overlay">
-        <div class="spinner"></div>
-        <div id="loading-text">Kamera wird gestartet…</div>
       </div>
     </div>
   </section>
@@ -417,13 +428,9 @@
     video.srcObject = stream;
     await new Promise(res => { video.onloadedmetadata = () => { video.play(); res(); }; });
 
-    // Fixed portrait frame regardless of the camera's native sensor orientation/resolution
-    const camWrap = document.getElementById('cam-wrap');
-    camWrap.style.aspectRatio = '3 / 4';
     await new Promise(res => requestAnimationFrame(res)); // let layout settle
-    const rect = camWrap.getBoundingClientRect();
-    canvas.width = Math.round(rect.width);
-    canvas.height = Math.round(rect.height);
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 
     if(!modelsLoaded){
       loadingText.textContent = 'Gesichtserkennung wird geladen…';
