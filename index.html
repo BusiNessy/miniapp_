@@ -333,6 +333,9 @@
   const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights';
   const ROUND_SECONDS = 30;
   const CATCH_RADIUS = 130; // px in video pixel space, how far the tongue reaches
+  const MOUTH_FX_WORK_RES = 160;   // working resolution for the mouth bulge effect
+  const MOUTH_FX_BULGE_POWER = 0.5; // <1 = magnify center (bulge), edges stay fixed
+  const MOUTH_FX_PADDING = 2.3;     // how much face area around the mouth gets included
   const MOUTH_OPEN_THRESHOLD = 0.42;
   const MOUTH_CLOSE_THRESHOLD = 0.24;
   const LASH_COOLDOWN_MS = 380;
@@ -379,6 +382,12 @@
   let lastFaceSeen = 0;
   let rafId = null;
   let detectTimer = null;
+  let lastMouthBox = null; // {cx, cy, size} in raw video pixel space
+
+  const workCanvas = document.createElement('canvas');
+  workCanvas.width = MOUTH_FX_WORK_RES;
+  workCanvas.height = MOUTH_FX_WORK_RES;
+  const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
 
   function showToast(msg){
     toastEl.textContent = msg;
@@ -539,13 +548,69 @@
   }
 
   // ---------------- Face / mouth detection ----------------
-  function videoToCanvasCoords(x, y){
+  function getVideoToCanvasScale(){
     const vw = video.videoWidth, vh = video.videoHeight;
-    if(!vw || !vh) return { x, y };
+    if(!vw || !vh) return { scale: 1, offsetX: 0, offsetY: 0 };
     const scale = Math.max(canvas.width / vw, canvas.height / vh);
     const offsetX = (vw * scale - canvas.width) / 2;
     const offsetY = (vh * scale - canvas.height) / 2;
+    return { scale, offsetX, offsetY };
+  }
+  function videoToCanvasCoords(x, y){
+    const { scale, offsetX, offsetY } = getVideoToCanvasScale();
     return { x: x * scale - offsetX, y: y * scale - offsetY };
+  }
+
+  function computeMouthBox(landmarks){
+    const pts = landmarks.positions;
+    let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+    for(let i=48;i<=59;i++){ // outer lip contour only
+      minX = Math.min(minX, pts[i].x); maxX = Math.max(maxX, pts[i].x);
+      minY = Math.min(minY, pts[i].y); maxY = Math.max(maxY, pts[i].y);
+    }
+    const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+    const size = Math.max(maxX-minX, maxY-minY) * MOUTH_FX_PADDING;
+    return { cx, cy, size };
+  }
+
+  function drawMouthBulge(){
+    if(!lastMouthBox) return;
+    if(performance.now() - lastFaceSeen > 800) return;
+    const { cx, cy, size } = lastMouthBox;
+    if(!size || size < 4) return;
+    const R = MOUTH_FX_WORK_RES;
+
+    workCtx.drawImage(video, cx-size/2, cy-size/2, size, size, 0, 0, R, R);
+    let imgData;
+    try{ imgData = workCtx.getImageData(0,0,R,R); } catch(e){ return; }
+    const src = imgData.data;
+    const dst = new Uint8ClampedArray(src.length);
+    const c = R/2;
+    for(let y=0;y<R;y++){
+      const dy = y-c;
+      for(let x=0;x<R;x++){
+        const dx = x-c;
+        const r = Math.sqrt(dx*dx+dy*dy)/c;
+        let sxp, syp;
+        if(r < 1 && r > 0.0001){
+          const scale = Math.pow(r, MOUTH_FX_BULGE_POWER) / r;
+          sxp = c + dx*scale;
+          syp = c + dy*scale;
+        } else {
+          sxp = x; syp = y;
+        }
+        sxp = Math.max(0, Math.min(R-1, sxp|0));
+        syp = Math.max(0, Math.min(R-1, syp|0));
+        const si = (syp*R+sxp)*4;
+        const di = (y*R+x)*4;
+        dst[di]=src[si]; dst[di+1]=src[si+1]; dst[di+2]=src[si+2]; dst[di+3]=255;
+      }
+    }
+    workCtx.putImageData(new ImageData(dst, R, R), 0, 0);
+
+    const { scale, offsetX, offsetY } = getVideoToCanvasScale();
+    const dcx = cx*scale - offsetX, dcy = cy*scale - offsetY, dsize = size*scale;
+    ctx.drawImage(workCanvas, dcx-dsize/2, dcy-dsize/2, dsize, dsize);
   }
 
   function mouthOpenRatio(landmarks){
@@ -577,6 +642,7 @@
           faceHint.classList.add('hidden');
           const ratio = mouthOpenRatio(result.landmarks);
           const center = mouthCenter(result.landmarks);
+          lastMouthBox = computeMouthBox(result.landmarks);
           mouthFill.style.width = Math.min(100, Math.round(ratio*140)) + '%';
 
           if(!mouthOpenState && ratio > MOUTH_OPEN_THRESHOLD){
@@ -651,6 +717,7 @@
     function frame(){
       if(!playing) return;
       ctx.clearRect(0,0,canvas.width,canvas.height);
+      drawMouthBulge();
       updateMosquitoes();
       mosquitoes.forEach(drawMosquito);
       drawTongue();
