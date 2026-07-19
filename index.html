@@ -261,7 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
-    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v8-lip-contour-mask</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v9-mask-expand</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -335,8 +335,10 @@
   const ROUND_SECONDS = 30;
   const CATCH_RADIUS = 130; // px in video pixel space, how far the tongue reaches
   const MOUTH_FX_WORK_RES = 160;   // working resolution for the lip crop
-  const MOUTH_FX_PADDING = 1.5;    // tight crop, mostly just the lips + tiny margin
+  const MOUTH_FX_PADDING = 2.0;    // crop margin around the lips, generous enough for the expanded/blurred mask
   const MOUTH_FX_MAGNIFY = 2.5;    // how much bigger the lips are drawn than natural size
+  const MOUTH_FX_MASK_EXPAND = 1.35; // push the mask contour outward beyond the exact lip line
+  const MOUTH_FX_MASK_BLUR = 0.08;   // softness of the mask edge, relative to work resolution
   const MOUTH_OPEN_THRESHOLD = 0.42;
   const MOUTH_CLOSE_THRESHOLD = 0.24;
   const LASH_COOLDOWN_MS = 380;
@@ -588,15 +590,17 @@
     workCtx.clearRect(0,0,R,R);
     workCtx.drawImage(video, cx-size/2, cy-size/2, size, size, 0, 0, R, R);
 
-    // soft mask following the actual lip contour, instead of a generic circle
+    // soft mask following the actual lip contour, pushed outward a bit, instead of a generic circle
     workCtx.save();
     workCtx.globalCompositeOperation = 'destination-in';
-    workCtx.filter = 'blur(' + Math.round(R*0.05) + 'px)';
+    workCtx.filter = 'blur(' + Math.round(R*MOUTH_FX_MASK_BLUR) + 'px)';
     workCtx.beginPath();
     lastMouthBox.lipPts.forEach((p, i) => {
       const lx = (p.x - (cx-size/2)) / size * R;
       const ly = (p.y - (cy-size/2)) / size * R;
-      if(i === 0) workCtx.moveTo(lx, ly); else workCtx.lineTo(lx, ly);
+      const ex = R/2 + (lx-R/2) * MOUTH_FX_MASK_EXPAND;
+      const ey = R/2 + (ly-R/2) * MOUTH_FX_MASK_EXPAND;
+      if(i === 0) workCtx.moveTo(ex, ey); else workCtx.lineTo(ex, ey);
     });
     workCtx.closePath();
     workCtx.fillStyle = '#000';
