@@ -261,7 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
-    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v16-centered-clamp-smoothing</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v17-less-lag</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -388,7 +388,7 @@
   let detectTimer = null;
   let lastMouthBox = null; // {cx, cy, size} in raw video pixel space, updated at detection rate
   let smoothMouthBox = null; // same shape, eased toward lastMouthBox every render frame for fluid motion
-  const MOUTH_FX_SMOOTHING = 0.35; // 0-1, higher = snappier/less smooth, lower = smoother/more lag
+  const MOUTH_FX_SMOOTHING = 0.75; // 0-1, higher = snappier/less smooth, lower = smoother/more lag
 
   const workCanvas = document.createElement('canvas');
   workCanvas.width = MOUTH_FX_WORK_RES;
