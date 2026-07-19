@@ -261,6 +261,7 @@
     <button class="btn-primary" id="btn-start">Kamera erlauben &amp; starten</button>
     <button class="btn-secondary" id="btn-show-lb-start">🏆 Bestenliste</button>
     <p class="footnote">Läuft komplett im Browser. Die Kamera wird nicht aufgezeichnet oder irgendwohin gesendet – alles bleibt auf deinem Gerät.</p>
+    <p class="footnote" style="opacity:.5;">Version: 2026-07-19-v6-bulge-fix</p>
   </section>
 
   <!-- CAMERA ERROR -->
@@ -334,7 +335,7 @@
   const ROUND_SECONDS = 30;
   const CATCH_RADIUS = 130; // px in video pixel space, how far the tongue reaches
   const MOUTH_FX_WORK_RES = 160;   // working resolution for the mouth bulge effect
-  const MOUTH_FX_BULGE_POWER = 0.5; // <1 = magnify center (bulge), edges stay fixed
+  const MOUTH_FX_BULGE_POWER = 3.2; // >1 = magnify center (bulge outward), edges stay fixed
   const MOUTH_FX_PADDING = 2.3;     // how much face area around the mouth gets included
   const MOUTH_OPEN_THRESHOLD = 0.42;
   const MOUTH_CLOSE_THRESHOLD = 0.24;
