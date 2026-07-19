@@ -417,9 +417,13 @@
     video.srcObject = stream;
     await new Promise(res => { video.onloadedmetadata = () => { video.play(); res(); }; });
 
-    canvas.width = video.videoWidth || 720;
-    canvas.height = video.videoHeight || 960;
-    document.getElementById('cam-wrap').style.aspectRatio = canvas.width + ' / ' + canvas.height;
+    // Fixed portrait frame regardless of the camera's native sensor orientation/resolution
+    const camWrap = document.getElementById('cam-wrap');
+    camWrap.style.aspectRatio = '3 / 4';
+    await new Promise(res => requestAnimationFrame(res)); // let layout settle
+    const rect = camWrap.getBoundingClientRect();
+    canvas.width = Math.round(rect.width);
+    canvas.height = Math.round(rect.height);
 
     if(!modelsLoaded){
       loadingText.textContent = 'Gesichtserkennung wird geladen…';
@@ -518,6 +522,15 @@
   }
 
   // ---------------- Face / mouth detection ----------------
+  function videoToCanvasCoords(x, y){
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if(!vw || !vh) return { x, y };
+    const scale = Math.max(canvas.width / vw, canvas.height / vh);
+    const offsetX = (vw * scale - canvas.width) / 2;
+    const offsetY = (vh * scale - canvas.height) / 2;
+    return { x: x * scale - offsetX, y: y * scale - offsetY };
+  }
+
   function mouthOpenRatio(landmarks){
     const pts = landmarks.positions;
     // 68-point model indices: outer mouth 48-59, inner mouth 60-67
@@ -533,7 +546,7 @@
     const pts = landmarks.positions;
     let x=0,y=0;
     for(let i=60;i<=67;i++){ x+=pts[i].x; y+=pts[i].y; }
-    return { x: x/8, y: y/8 };
+    return videoToCanvasCoords(x/8, y/8);
   }
 
   async function startDetectionLoop(){
